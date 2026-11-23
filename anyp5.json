@@ -11,6 +11,10 @@
  "inbox_issue": 1,
  "state_branch": "anyp5-state",
  "config": {
-  "canary_source": "pending"
+  "canary_source": "pending",
+  "ban_needs_admin_below": 0,
+  "ci": {
+   "required": true
+  }
  }
 }
