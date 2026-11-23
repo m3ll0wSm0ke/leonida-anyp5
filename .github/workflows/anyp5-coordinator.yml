@@ -24,16 +24,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: project
           fetch-depth: 0
           filter: blob:none
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: anyp5-ledger
           path: ledger
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       # Pin to the release commit hash, not the tag: whoever can move the tag would control the coordinator.
