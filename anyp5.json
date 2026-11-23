@@ -1,0 +1,16 @@
+{
+ "coordinator": {
+  "box": "nOE1IXSg3t/g3Q/BbizdTzn7Id9nPLF5coVQQFYnuE4=",
+  "sign": "4wW/GpDUbhxdZWPAihcc3Lntshffow+PtNx11q1SBd0="
+ },
+ "admins": [
+  "tibzejoker"
+ ],
+ "project": "tibzejoker/leonida-anyp5",
+ "branch": "main",
+ "inbox_issue": 1,
+ "state_branch": "anyp5-state",
+ "config": {
+  "canary_source": "pending"
+ }
+}
