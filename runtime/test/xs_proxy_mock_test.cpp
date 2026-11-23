@@ -269,9 +269,9 @@ using SlotFn = std::uint64_t(WINAPI*)(void*, std::uint64_t, std::uint64_t, std::
                                       std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t);
 
 std::uint64_t raw(const void* object, unsigned slot, std::uint64_t a1 = 0, std::uint64_t a2 = 0,
-                  std::uint64_t a3 = 0, std::uint64_t a4 = 0, std::uint64_t a5 = 0) {
+                  std::uint64_t a3 = 0, std::uint64_t a4 = 0, std::uint64_t a5 = 0, std::uint64_t a6 = 0) {
     void* const* vtable = *reinterpret_cast<void* const* const*>(object);
-    return reinterpret_cast<SlotFn>(vtable[slot])(const_cast<void*>(object), a1, a2, a3, a4, a5, 0, 0, 0, 0, 0, 0,
+    return reinterpret_cast<SlotFn>(vtable[slot])(const_cast<void*>(object), a1, a2, a3, a4, a5, a6, 0, 0, 0, 0, 0,
                                                   0, 0, 0);
 }
 
@@ -379,6 +379,52 @@ int check_levels() {
             EXPECT(release(queue1) == 0 && mock->last_child->refs == 0);
         } else {
             EXPECT(r75 == E_NOTIMPL && !queue1 && mock->calls[75] == 0);
+        }
+
+        // 133: past every PC device vtable; the retail title calls it. Refused, not a jump through a missing entry.
+        EXPECT(hr_of(raw(device, 133)) == E_NOTIMPL && mock->calls[127] == 0);
+
+        // 133 with a handler (CreatePlacedResourceX): the arguments in the title's positions (va, desc, state,
+        // clear, riid, out) reach the handler with the real device, the Xbox flag bits masked to the PC ones the host
+        // takes (0x20004 -> 0x4, and 0x200 dropped) and the buffer's Xbox layout word made ROW_MAJOR.
+        {
+            static void* seen_real = nullptr;
+            static void* seen_va = nullptr;
+            static D3D12_RESOURCE_DESC seen_desc{};
+            static GUID seen_iid{};
+            static std::uint32_t seen_layout = 0;
+            const xs::PlacedAtVaHandler handler = [](ID3D12Device* real_device, void* va,
+                                                     const D3D12_RESOURCE_DESC& desc, std::uint32_t layout,
+                                                     REFIID iid, void** out) -> HRESULT {
+                seen_layout = layout;
+                seen_real = real_device;
+                seen_va = va;
+                seen_desc = desc;
+                seen_iid = iid;
+                *out = reinterpret_cast<void*>(0x1330);
+                return S_OK;
+            };
+            xs::set_placed_at_va_handler(handler);
+            D3D12_RESOURCE_DESC xbox_desc{};
+            xbox_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            xbox_desc.Width = 0x10000;
+            xbox_desc.Height = xbox_desc.DepthOrArraySize = xbox_desc.MipLevels = 1;
+            xbox_desc.SampleDesc.Count = 1;
+            xbox_desc.Layout = static_cast<D3D12_TEXTURE_LAYOUT>(0x1);  // the Xbox row-major word
+            xbox_desc.Flags = static_cast<D3D12_RESOURCE_FLAGS>(0x20204);
+            const GUID resource_iid = __uuidof(ID3D12Resource);
+            void* placed = nullptr;
+            void* const va = reinterpret_cast<void*>(0x7f0000000000ull);
+            const HRESULT r133 = hr_of(raw(device, 133, word(va), word(&xbox_desc), 0xFFFFFFFFull, 0,
+                                           word(&resource_iid), word(&placed)));
+            xs::set_placed_at_va_handler(nullptr);
+            EXPECT(r133 == S_OK && placed == reinterpret_cast<void*>(0x1330));
+            EXPECT(seen_real == xs::device_proxy_real_device(device) && seen_va == va);
+            EXPECT(static_cast<std::uint32_t>(seen_desc.Flags) == 0x4);
+            EXPECT(seen_desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR && seen_desc.Width == 0x10000);
+            EXPECT(std::memcmp(&seen_iid, &resource_iid, sizeof(GUID)) == 0);
+            EXPECT(seen_layout == 0xFFFFFFFFu);  // the title's third word, passed through as the barrier layout
+            EXPECT(xs::device_slot_overridden(133));
         }
 
         Mock* const queue_mock = reinterpret_cast<Mock*>(real_queue);

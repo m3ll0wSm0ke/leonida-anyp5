@@ -187,6 +187,10 @@ struct VulkanDeviceInfo {
     // colours fall back to transparent black.
     bool custom_border_color = false;
     bool custom_border_color_without_format = false;
+    // VK_EXT_external_memory_host is enabled on `device` when this is non-zero (its
+    // minImportedHostPointerAlignment): OpenExistingHeapFromAddress backs a heap with the caller's own committed
+    // memory. Zero: existing heaps stay unsupported.
+    VkDeviceSize host_pointer_alignment = 0;
 };
 
 // A Vulkan-backed ID3D12Device (PC ABI, up to ID3D12Device11) on caller-owned Vulkan objects, which must outlive
@@ -218,6 +222,13 @@ VkBuffer vulkan_buffer(ID3D12Resource* resource);
 const VulkanDeviceInfo* vulkan_device_info(ID3D12Device* device);
 // True when `device` has VK_KHR_acceleration_structure + VK_KHR_ray_query enabled.
 bool device_supports_ray_tracing(ID3D12Device* device);
+
+// Xbox device slot 133 (the console's CreatePlacedResourceX): a buffer on the caller's own pages at `address`, which
+// becomes its console VA. The pages are imported with VK_EXT_external_memory_host, so what the CPU writes there is
+// what the GPU reads. A buffer description only; E_NOTIMPL on a device that is not the Vulkan layer, without the
+// extension, or for a texture.
+HRESULT create_buffer_at_host_address(ID3D12Device* device, void* address, const D3D12_RESOURCE_DESC& desc,
+                                      std::uint32_t layout, REFIID riid, void** out);
 // The VkAccelerationStructureKHR registered for `va` on `device`, or VK_NULL_HANDLE. For tests.
 VkAccelerationStructureKHR vulkan_acceleration_structure(ID3D12Device* device, D3D12_GPU_VIRTUAL_ADDRESS va);
 
