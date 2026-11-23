@@ -1,0 +1,54 @@
+# any%5 merge queue CI for this fork. The coordinator pushes each batch of approved changes to the anyp5-queue
+# branch, starts this workflow there, and fast-forwards main only to a candidate whose `anyp5-ci` check succeeded.
+#
+# Started with workflow_dispatch because a push made with the coordinator's GITHUB_TOKEN starts no workflow.
+# This runs contributor code: it gets no secrets and a read-only token. Batches never hold changes under
+# .github/, so the workflow that runs is always the one already on main.
+#
+# What it checks, the same as upstream Leonida's own CI: no game data in the tree, every Python tool and
+# make_game.py compile and start, and the runtime builds with MSVC and passes ctest. A hosted runner has no GPU,
+# so the Vulkan tests skip (exit 77); GPU and retail checks stay with contributors who have the hardware and their
+# own copy of the game, posted as review evidence.
+name: anyp5-ci
+on:
+  workflow_dispatch:
+concurrency:
+  group: anyp5-ci
+  cancel-in-progress: true   # a newer candidate replaces the old one; a cancelled run is retried
+permissions:
+  contents: read
+jobs:
+  anyp5-ci:                  # the check run name the coordinator reads (ci.check in anyp5.json)
+    runs-on: windows-latest
+    timeout-minutes: 55      # keep under ci.timeout_minutes (set to 60 in anyp5.json)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: No game data
+        shell: pwsh
+        run: python -I scripts/check_no_game_data.py
+      - name: Python tools compile and start
+        shell: pwsh
+        run: |
+          python -m compileall -q make_game.py tools tests
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -I make_game.py --help | Out-Null
+          exit $LASTEXITCODE
+      - name: Runtime builds and passes ctest
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if (-not $vs) { throw 'Visual Studio with the x64 C++ tools was not found' }
+          $vcvars = Join-Path $vs.Trim() 'VC\Auxiliary\Build\vcvars64.bat'
+          # The same configuration as upstream's runtime.yml, with the Vulkan headers fetched by CMake.
+          $build = 'cmake -S runtime -B runtime/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo' +
+                   ' -DLEONIDA_D3D12_SHIM_TESTS=ON -DLEONIDA_REQUIRE_VULKAN=ON -DLEONIDA_VULKAN_HEADERS_FETCH=ON' +
+                   ' && cmake --build runtime/build' +
+                   ' && ctest --test-dir runtime/build --output-on-failure -j 2'
+          cmd /c "`"$vcvars`" >nul && $build"
+          exit $LASTEXITCODE

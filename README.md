@@ -1,3 +1,8 @@
+> **This is Leonida on [any%5](https://github.com/tibzejoker/anyPercent5), an open-review experiment.** Changes are
+> reviewed blind by contributors drawn at random and land through a merge queue, with no fixed maintainers. Read
+> [ANYP5.md](ANYP5.md) before contributing, and **build only release tags, never `main`**. Upstream:
+> [ProjectLeonida/Leonida](https://github.com/ProjectLeonida/Leonida).
+
 <h1 align="center">
   <br>
   <a>
