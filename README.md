@@ -296,3 +296,8 @@ endorsed by them.
 ## License
 
 GPLv3 (or any later version). See [LICENSE](LICENSE). Third-party code keeps its own license.
+
+## Where to start
+
+<!-- anyp5:wanted -->
+<!-- /anyp5:wanted -->
