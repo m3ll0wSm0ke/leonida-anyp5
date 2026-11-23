@@ -44,6 +44,13 @@ already tested on their own hardware (ProjectLeonida/Leonida#7218, device slot 1
 the second member on, every change goes through any%5, the owner's included. The `git log` of `main` shows which
 commits came this way: they are the ones not made by `anyp5[bot]`.
 
+## Staying level with upstream
+
+Every hour, the `upstream sync` workflow merges upstream `main` into this `main`, up to the newest upstream commit
+whose own Runtime CI passed, so a broken upstream state is skipped. Upstream is this fork's trusted base: its commits
+do not go through any%5 review here. A change upstream also takes lands here within the hour; one it closed can be
+submitted here.
+
 ## Join
 
 ```sh
