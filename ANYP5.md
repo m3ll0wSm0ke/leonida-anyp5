@@ -36,6 +36,14 @@ project's tests, with no maintainer in the loop. The design and its simulations 
    repository owner is a change under `.github/`, so that merged code can never rewrite the workflow that holds
    the coordinator key.
 
+## Bootstrap
+
+`release-0` and the first seed changes were pushed directly by the repository owner, while the project had a
+single member and nobody else could review: upstream pull requests from the owner that other contributors had
+already tested on their own hardware (ProjectLeonida/Leonida#7218, device slot 133 on the title's own pages). From
+the second member on, every change goes through any%5, the owner's included. The `git log` of `main` shows which
+commits came this way: they are the ones not made by `anyp5[bot]`.
+
 ## Join
 
 ```sh
