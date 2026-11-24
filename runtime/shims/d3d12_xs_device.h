@@ -100,6 +100,14 @@ using PlacedAtVaHandler = HRESULT (*)(ID3D12Device* real, void* va, const D3D12_
                                       std::uint32_t layout, REFIID riid, void** out);
 void set_placed_at_va_handler(PlacedAtVaHandler handler);
 
+// Device slot 14's console-extended form (a console VA and size after the PC description) creates its heap through
+// this handler, which the Vulkan layer registers (rt::d3d12::create_console_descriptor_heap), so the proxy does not
+// link the layer. With none registered, slot 14 takes the PC CreateDescriptorHeap path.
+using ConsoleDescriptorHeapHandler = HRESULT (*)(ID3D12Device* real, const D3D12_DESCRIPTOR_HEAP_DESC* desc,
+                                                 D3D12_GPU_VIRTUAL_ADDRESS address, std::uint64_t size,
+                                                 REFIID riid, void** out);
+void set_console_descriptor_heap_handler(ConsoleDescriptorHeapHandler handler);
+
 // Called by slot 133 for a buffer, before the handler, with the buffer's range [va, va + width). gta6rt registers
 // rt::xmem::commit_physical_range: xmem commits physical pages on first touch, so a range the title has mapped but
 // not written yet is still reserved, and the handler's import refuses reserved pages (it would answer with its

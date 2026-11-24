@@ -1579,6 +1579,9 @@ static bool readable_range(const void* ptr, std::size_t bytes) {
     return true;
 }
 
+// Slot 14's console-extended heaps, made by the device behind the proxy (set_console_descriptor_heap_handler).
+std::atomic<ConsoleDescriptorHeapHandler> g_console_descriptor_heap{nullptr};
+
 HRESULT proxy_create_descriptor_heap(DeviceProxy* self, const D3D12_DESCRIPTOR_HEAP_DESC* desc, const IID* riid,
                                      void** out) {
     note_slot(14);
@@ -1599,13 +1602,20 @@ HRESULT proxy_create_descriptor_heap(DeviceProxy* self, const D3D12_DESCRIPTOR_H
             std::uint64_t size = 0;
             std::memcpy(&address, tail, sizeof(address));
             std::memcpy(&size, bytes + sizeof(D3D12_DESCRIPTOR_HEAP_DESC) + sizeof(address), sizeof(size));
-            // Console-extended slot 14 (issue #313): address/size follow the PC desc. Only take this path when a
-            // non-zero console VA is present; normal PC 16-byte descs never enter it.
-            if (address != 0) {
+            // Console-extended slot 14 (issue #313): address/size follow the PC desc. A PC caller passes only the
+            // 16-byte desc, and whatever follows it in memory is unrelated (often a non-zero stack word), so a
+            // non-zero address alone is not the console form: it made ordinary heaps report a garbage CPU start and
+            // every test that writes descriptors crash. The console form needs the size to be exactly the heap's
+            // descriptors at the console's 32 bytes each, and a page-aligned address, which unrelated words don't give.
+            constexpr std::uint64_t kConsoleDescriptorBytes = 32;
+            const bool console_form = address != 0 && (address & 0xFFF) == 0 &&
+                                      size == std::uint64_t(desc->NumDescriptors) * kConsoleDescriptorBytes;
+            const ConsoleDescriptorHeapHandler handler =
+                g_console_descriptor_heap.load(std::memory_order_acquire);
+            if (console_form && handler) {
                 console_extended = true;
-                hr = rt::d3d12::create_console_descriptor_heap(
-                    self->real, desc, static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(address), size,
-                    __uuidof(ID3D12DescriptorHeap), &created);
+                hr = handler(self->real, desc, static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(address), size,
+                             __uuidof(ID3D12DescriptorHeap), &created);
             }
         }
     }
@@ -2035,6 +2045,10 @@ unsigned device_proxy_slot_count(const void* device) {
 
 void set_placed_at_va_handler(PlacedAtVaHandler handler) {
     g_placed_at_va.store(handler, std::memory_order_release);
+}
+
+void set_console_descriptor_heap_handler(ConsoleDescriptorHeapHandler handler) {
+    g_console_descriptor_heap.store(handler, std::memory_order_release);
 }
 
 void set_placed_at_va_pages_hook(PlacedAtVaPagesHook hook) {

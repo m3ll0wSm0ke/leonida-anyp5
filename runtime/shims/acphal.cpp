@@ -141,7 +141,9 @@ struct SHAPE_XMA_CONTEXT {
     uint32_t reserved1 : 6;
     uint32_t loopStartOffset : 26;
     uint32_t loopEndOffset : 6;
-    uint32_t reserved[10];
+    // 15 words of fields (the third holds 24 bits; currentByteOffset starts the fourth), then reserved up to the GDK's
+    // 64 bytes. The title walks the array at a 64-byte stride (it clears count << 6 bytes), so the size is what counts.
+    uint32_t reserved[11];
 };
 static_assert(sizeof(SHAPE_XMA_CONTEXT) == 64, "SHAPE_XMA_CONTEXT is 64 bytes per GDK");
 
@@ -162,7 +164,7 @@ struct SHAPE_PCM_CONTEXT {
     uint32_t reserved6 : 15;
     uint32_t format : 2;
     uint32_t reserved7 : 14;
-    uint32_t reserved[1];
+    uint32_t reserved[2];  // six words of fields, then reserved up to the GDK's 32 bytes
 };
 static_assert(sizeof(SHAPE_PCM_CONTEXT) == 32, "SHAPE_PCM_CONTEXT is 32 bytes per GDK");
 
