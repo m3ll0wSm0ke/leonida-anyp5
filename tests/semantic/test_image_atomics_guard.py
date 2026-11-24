@@ -73,11 +73,20 @@ def parse_blocks(spv):
     return blocks
 
 
-def find_guarded_texel_block(spv):
+def find_guarded_texel_block(spv, *, require_load=False):
     """Verify every OpImageTexelPointer sits inside a basic block entered via an OpSelectionMerge
-    conditional branch whose condition is an OpLoad %bool %active, and return that block's instructions."""
+    conditional branch on the lane's active bit, and return that block's instructions.
+
+    The active bit is an OpLoad %bool %active, or the constant %true when the program never writes EXEC
+    (exec_static_true, #4473: every lane is known active, so the translator folds the load away), or the
+    value the translator just stored to %active (#4473's per-block cache forwards it instead of a reload).
+    With require_load the constant is not accepted: the program masks lanes and the guard must use the
+    live %active value."""
     blocks = parse_blocks(spv)
     active_loads = set(re.findall(r"^\s*(%\w+) = OpLoad %bool %active\b", spv, re.M))
+    active_loads |= set(re.findall(r"^\s*OpStore %active (%\w+)\b", spv, re.M))
+    if not require_load:
+        active_loads.add("%true")
     guarded_targets = set()
     for insns in blocks.values():
         for i, ln in enumerate(insns):
@@ -148,6 +157,28 @@ class ImageAtomicsGuardTests(unittest.TestCase):
                         )
                         self.assertEqual(has_glc_store, bool(glc),
                                          f"glc={bool(glc)} mismatch for v0 write-back in guarded block")
+
+    def test_image_atomics_under_masked_exec_read_active(self):
+        # With EXEC written, exec_static_true is off: the guard must branch on a real %active load.
+        for op, dim, addr in (
+            ("image_atomic_add", "dim:SQ_RSRC_IMG_2D", "v[1:2]"),
+            ("image_atomic_or", "dim:SQ_RSRC_IMG_3D", "v[1:3]"),
+            ("image_atomic_inc", "dim:SQ_RSRC_IMG_2D", "v[1:2]"),
+        ):
+            with self.subTest(op=op, dim=dim):
+                spv = translate([
+                    "v_mov_b32_e32 v0, 5",
+                    "v_mov_b32_e32 v1, 1",
+                    "v_mov_b32_e32 v2, 2",
+                    "v_mov_b32_e32 v3, 0",
+                    "v_writelane_b32 v3, 1, 7",
+                    "v_cmp_eq_u32 vcc_lo, v3, 0",
+                    "s_and_saveexec_b32 s12, vcc_lo",
+                    f"{op} v0, {addr}, s[4:11] dmask:0x1 {dim} unorm glc",
+                    "s_or_b32 exec_lo, exec_lo, s12",
+                ])
+                validate_spirv(spv)
+                self.assertEqual(len(find_guarded_texel_block(spv, require_load=True)), 1)
 
     def test_image_atomic_inc_and_dec_cas_2d_3d_and_a16(self):
         cases = [
