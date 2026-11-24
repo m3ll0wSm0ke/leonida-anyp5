@@ -52,6 +52,10 @@ def vdata_reg(dmask, d16=False):
 def llvm_mc_cmd():
     env = os.environ.get("LLVM_MC")
     if env:
+        # A plain path, as the other tools read LLVM_MC. shlex.split would eat the backslashes of a Windows
+        # path (E:\tools\llvm-mc.exe -> E:toolsllvm-mc.exe); it stays for a command with arguments.
+        if os.path.isfile(env):
+            return [env]
         return shlex.split(env)
     exe = shutil.which("llvm-mc")
     return [exe] if exe else None
