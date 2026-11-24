@@ -186,6 +186,25 @@ bool resolve_and_read(ID3D12Device* device, const Case& c, Planes& out, bool run
         list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         list->DrawInstanced(3, 1, 0, 0);
     }
+    // The clears (and the edge draw) run in their own list first. A refused resolve list runs nothing, so a clear
+    // recorded into it would never reach the destination and "kept" could not be told from never written.
+    UINT64 fence_value = 0;
+    const auto submit = [&]() -> bool {
+        ID3D12CommandList* lists[] = {list.p};
+        queue->ExecuteCommandLists(1, lists);
+        CHECK(SUCCEEDED(queue->Signal(fence.p, ++fence_value)));
+        Event event;
+        CHECK(event.handle);
+        CHECK(SUCCEEDED(fence->SetEventOnCompletion(fence_value, event.handle)));
+        // 30 s, not 5 s: under `ctest -j 6` other GPU tests share the device, and a fence can take longer
+        // than this test's idle runtime to signal (TEST-514 flake). Sibling tests already wait 15-60 s.
+        CHECK(WaitForSingleObject(event.handle, 30000) == WAIT_OBJECT_0);
+        return true;
+    };
+    CHECK(SUCCEEDED(list->Close()));
+    if (!submit()) return false;
+    CHECK(SUCCEEDED(allocator->Reset()));
+    CHECK(SUCCEEDED(list->Reset(allocator.p, nullptr)));
 
     D3D12_RESOURCE_BARRIER barriers[2]{};
     for (auto& barrier : barriers) {
@@ -206,27 +225,34 @@ bool resolve_and_read(ID3D12Device* device, const Case& c, Planes& out, bool run
     barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_DEST;
     barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
     list->ResourceBarrier(1, &barriers[1]);
-    for (UINT i = 0; i < planes; ++i) {
-        D3D12_TEXTURE_COPY_LOCATION src{}, dst{};
-        src.pResource = target.p;
-        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        src.SubresourceIndex = i;
-        dst.pResource = readback.p;
-        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-        dst.PlacedFootprint = placed[i];
-        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-    }
+    const auto copy_out = [&] {
+        for (UINT i = 0; i < planes; ++i) {
+            D3D12_TEXTURE_COPY_LOCATION src{}, dst{};
+            src.pResource = target.p;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = i;
+            dst.pResource = readback.p;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint = placed[i];
+            list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
+    };
+    copy_out();
     out.close = list->Close();
     if (FAILED(out.close) && !run_invalid) return true;
-    ID3D12CommandList* lists[] = {list.p};
-    queue->ExecuteCommandLists(1, lists);
-    CHECK(SUCCEEDED(queue->Signal(fence.p, 1)));
-    Event event;
-    CHECK(event.handle);
-    CHECK(SUCCEEDED(fence->SetEventOnCompletion(1, event.handle)));
-    // 30 s, not 5 s: under `ctest -j 6` other GPU tests share the device, and a fence can take longer
-    // than this test's idle runtime to signal (TEST-514 flake). Sibling tests already wait 15-60 s.
-    CHECK(WaitForSingleObject(event.handle, 30000) == WAIT_OBJECT_0);
+    if (!submit()) return false;  // a refused list runs nothing; the layer must still not touch the destination
+    if (FAILED(out.close)) {
+        // Read the destination back with a valid list. None of the refused list's barriers ran either, so the
+        // target is still in DEPTH_WRITE.
+        CHECK(SUCCEEDED(allocator->Reset()));
+        CHECK(SUCCEEDED(list->Reset(allocator.p, nullptr)));
+        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        list->ResourceBarrier(1, &barriers[1]);
+        copy_out();
+        CHECK(SUCCEEDED(list->Close()));
+        if (!submit()) return false;
+    }
     void* mapped = nullptr;
     const D3D12_RANGE range{0, SIZE_T(total)};
     CHECK(SUCCEEDED(readback->Map(0, &range, &mapped)) && mapped);
